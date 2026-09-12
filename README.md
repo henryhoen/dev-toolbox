@@ -11,6 +11,7 @@ The project installs a broad programming environment, language/version managers,
 | `setup-dev-toolbox.sh` | Initial bootstrap and idempotent repair/setup |
 | `update-dev-toolbox.sh` | Updates packages, upstream tools, and manager applications |
 | `verify-dev-toolbox.sh` | Verifies the host and complete `dev` environment |
+| `cleanup-dev-toolbox.sh` | Destructively removes the managed environment for a true clean reinstall test |
 | `AGENTS.md` | Persistent instructions for Codex/AI agents working on this repo |
 | `PROJECT_CONTEXT.md` | Design decisions and historical context |
 
@@ -44,7 +45,11 @@ The host **owns the machine**. The toolbox **owns the development environment**.
 Clone the repository on the Fedora Atomic host and run:
 
 ```bash
-chmod +x setup-dev-toolbox.sh update-dev-toolbox.sh verify-dev-toolbox.sh
+chmod +x \
+  setup-dev-toolbox.sh \
+  update-dev-toolbox.sh \
+  verify-dev-toolbox.sh \
+  cleanup-dev-toolbox.sh
 ./setup-dev-toolbox.sh
 ```
 
@@ -58,14 +63,42 @@ toolbox enter dev
 
 The setup script automatically runs verification at the end.
 
+## Complete clean reinstall test
+
+For a true end-to-end bootstrap test, use the cleanup script from the Fedora Atomic host:
+
+```bash
+./cleanup-dev-toolbox.sh
+```
+
+For non-interactive CI/manual testing where you intentionally want destructive cleanup:
+
+```bash
+./cleanup-dev-toolbox.sh --yes
+```
+
+The cleanup script removes the selected Toolbx container and the user-level development environment created/managed by this project, including Oh My Zsh, SDKMAN, nvm, rustup/Cargo, GHCup, LuaLS, generated helpers/configuration, Cursor artifacts, VS Code, and IntelliJ. It also removes `~/.zshrc` so setup can prove that it can recreate the shell configuration from scratch.
+
+After cleanup, perform the full acceptance cycle and capture logs:
+
+```bash
+./setup-dev-toolbox.sh 2>&1 | tee setup-full-test.log
+./verify-dev-toolbox.sh 2>&1 | tee verify-full-test.log
+./update-dev-toolbox.sh 2>&1 | tee update-full-test.log
+./verify-dev-toolbox.sh 2>&1 | tee verify-after-update.log
+```
+
+If any stage fails, fix the repository scripts rather than applying one-off manual repairs.
+
 ### Testing with a throwaway toolbox
 
-All three scripts honor the `BOX` environment variable. This lets you test against a disposable toolbox without touching the normal `dev` container:
+All lifecycle scripts honor the `BOX` environment variable. This lets you test against a disposable toolbox without touching the normal `dev` container:
 
 ```bash
 BOX=dev-test ./setup-dev-toolbox.sh
 BOX=dev-test ./verify-dev-toolbox.sh
 BOX=dev-test ./update-dev-toolbox.sh
+BOX=dev-test ./cleanup-dev-toolbox.sh
 ```
 
 The generated `~/.local/bin/dev-shell` helper is bound to the toolbox name used during setup. Remove the throwaway container afterwards with:

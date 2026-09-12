@@ -56,11 +56,42 @@ Responsibilities:
 - Do **not** upgrade manager-controlled language/toolchain versions.
 - Run the verifier after updates.
 
+
+### cleanup-dev-toolbox.sh
+
+Run from the host.
+
+Responsibilities:
+
+- Remove the selected Toolbx container (`dev` by default, configurable with `BOX`).
+- Remove project-managed shared-home state so a subsequent setup is a true first-install test.
+- Remove Oh My Zsh, SDKMAN, nvm, rustup/Cargo, GHCup, LuaLS, generated helpers/configuration, AI-tool wrappers/installations, and Cursor user-local artifacts created by this project.
+- Remove VS Code and IntelliJ Flatpaks installed by this project.
+- Remove `~/.zshrc` for the complete-clean-test workflow so setup must recreate it.
+- Require explicit confirmation unless `--yes` is provided.
+- Be idempotent and verify cleanup at the end.
+
+The cleanup script is part of the normal maintenance contract: when setup starts managing new persistent host/home state, cleanup should be updated in the same change.
+
 ### verify-dev-toolbox.sh
 
 May be invoked from the host. It dispatches into `dev` and tests host + toolbox state.
 
 The verifier intentionally collects all failures before returning non-zero. Full output is designed to be pasted into Codex/ChatGPT for diagnosis.
+
+## Full acceptance test
+
+The strongest regression test for this repository is:
+
+```bash
+./cleanup-dev-toolbox.sh --yes
+./setup-dev-toolbox.sh 2>&1 | tee setup-full-test.log
+./verify-dev-toolbox.sh 2>&1 | tee verify-full-test.log
+./update-dev-toolbox.sh 2>&1 | tee update-full-test.log
+./verify-dev-toolbox.sh 2>&1 | tee verify-after-update.log
+```
+
+This is preferred before handing major changes off because Toolbx shares `$HOME`; merely creating another toolbox is not a complete first-install test for SDKMAN, nvm, rustup, GHCup, Oh My Zsh, LuaLS, or other user-level state.
 
 ## Tooling currently intended
 

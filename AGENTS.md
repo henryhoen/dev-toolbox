@@ -6,18 +6,19 @@ Before changing anything, read:
 
 1. `README.MD`
 2. `PROJECT_CONTEXT.md`
-3. The three shell scripts in this repository
+3. The four lifecycle shell scripts in this repository
 
 ## Repository files
 
 - `setup-dev-toolbox.sh` — host-side bootstrap. Creates/configures the Toolbx environment and host GUI applications.
 - `update-dev-toolbox.sh` — host-side updater. Updates host/user applications, DNF packages, manually downloaded tools, and the manager applications themselves without upgrading manager-controlled SDK/toolchain versions.
 - `verify-dev-toolbox.sh` — verification suite. Tests host integration and every important tool inside `dev` and prints all failures before exiting non-zero.
+- `cleanup-dev-toolbox.sh` — destructive host-side cleanup used for true clean reinstall testing. Removes the selected toolbox plus the user-level state this project manages so setup can be tested from scratch.
 
 ## Required behavior
 
 - These scripts target Fedora COSMIC Atomic. Do not turn the host into a traditional mutable workstation with broad `rpm-ostree` package layering.
-- `setup-dev-toolbox.sh` and `update-dev-toolbox.sh` are launched from the Fedora Atomic host, not from inside Toolbx.
+- `setup-dev-toolbox.sh`, `update-dev-toolbox.sh`, and `cleanup-dev-toolbox.sh` are launched from the Fedora Atomic host, not from inside Toolbx.
 - Development CLI tools belong in Toolbx unless there is a strong host-specific reason.
 - GUI IDE/editors belong on the host/user application layer. Current design uses Flatpak for VS Code and IntelliJ and a user-local AppImage for Cursor.
 - Keep the setup script idempotent and safe to rerun on an already-configured machine.
@@ -56,7 +57,7 @@ Manually downloaded tools such as Lua Language Server, OpenShift `oc`, Cursor de
 
 After changing any script:
 
-1. Run `bash -n` on all three shell scripts.
+1. Run `bash -n` on all four lifecycle shell scripts.
 2. Run `shellcheck` when available and address actionable findings without adding pointless suppressions.
 3. If working on a Fedora Atomic machine with Toolbx available, run `./verify-dev-toolbox.sh` after changes that can be tested locally.
 4. Verification must continue through all checks and report all failures, not abort on the first missing tool.
@@ -74,6 +75,14 @@ copilot --version
 ```
 
 When a user provides failed setup/update/verifier output, diagnose the actual cause, patch the scripts so a clean/rerun installation handles the problem automatically, and update the verifier if the failure exposed a missing check.
+
+## Cleanup and clean-install testing
+
+- Keep `cleanup-dev-toolbox.sh` aligned with everything setup creates. If setup begins creating a new managed file, user-level installation, Flatpak, AppImage, wrapper, or config directory, decide whether cleanup must remove it and update cleanup in the same change.
+- Cleanup must honor `BOX`, be safe to rerun, and require explicit confirmation unless `--yes` is supplied.
+- Cleanup is intentionally destructive to project-managed development state. Do not broaden it to unrelated user files or unrelated Flatpaks.
+- A full acceptance test is: cleanup -> setup -> verify -> update -> verify. Capture logs when debugging failures.
+- When a clean-install failure is reported, patch setup/update/verify/cleanup as needed so the repository remains internally consistent.
 
 ## Shell style
 
