@@ -104,18 +104,18 @@ mkdir -p "$HOME/.local/bin" "$HOME/.local/opt"
 
 log "Lua Language Server update"
 update_luals() {
-  local arch latest current asset tmp
+  local arch latest current asset tmp luals_bin
   case "$(uname -m)" in
     x86_64) arch="x64" ;;
     aarch64) arch="arm64" ;;
-    *) warn "Unsupported LuaLS architecture: $(uname -m)"; return 0 ;;
+    *) warn "Unsupported LuaLS architecture: $(uname -m)"; return 1 ;;
   esac
 
-  latest="$(curl -fsSLI https://github.com/LuaLS/lua-language-server/releases/latest | awk -F/ 'tolower($1)=="location:" {gsub("\\r",""); print $NF}' | tail -1)"
+  latest="$(curl -fsSL https://api.github.com/repos/LuaLS/lua-language-server/releases/latest | jq -r '.tag_name // empty')"
   current="$(cat "$HOME/.local/opt/lua-language-server/.version" 2>/dev/null || true)"
-  [[ -n "$latest" ]] || { warn "Could not determine latest LuaLS release"; return 0; }
+  [[ -n "$latest" ]] || { warn "Could not determine latest LuaLS release"; return 1; }
 
-  if [[ "$latest" == "$current" && -x "$HOME/.local/opt/lua-language-server/bin/lua-language-server" ]]; then
+  if [[ "$latest" == "$current" && -x "$HOME/.local/bin/lua-language-server" ]]; then
     echo "LuaLS already current: $current"
     return 0
   fi
@@ -123,12 +123,23 @@ update_luals() {
   asset="lua-language-server-${latest}-linux-${arch}.tar.gz"
   tmp="$(mktemp -d)"
   curl -fL "https://github.com/LuaLS/lua-language-server/releases/download/${latest}/${asset}" -o "$tmp/luals.tar.gz"
+
   rm -rf "$HOME/.local/opt/lua-language-server"
   mkdir -p "$HOME/.local/opt/lua-language-server"
   tar -xzf "$tmp/luals.tar.gz" -C "$HOME/.local/opt/lua-language-server"
-  ln -sfn "$HOME/.local/opt/lua-language-server/bin/lua-language-server" "$HOME/.local/bin/lua-language-server"
+
+  luals_bin="$(find "$HOME/.local/opt/lua-language-server" -type f -name lua-language-server -perm /111 -print -quit)"
+  [[ -n "$luals_bin" ]] || { rm -rf "$tmp"; warn "LuaLS executable not found after extraction"; return 1; }
+
+  cat > "$HOME/.local/bin/lua-language-server" <<EOF
+#!/usr/bin/env bash
+exec "$luals_bin" "\$@"
+EOF
+  chmod +x "$HOME/.local/bin/lua-language-server"
+
   printf '%s\n' "$latest" > "$HOME/.local/opt/lua-language-server/.version"
   rm -rf "$tmp"
+  "$HOME/.local/bin/lua-language-server" --version >/dev/null
   echo "LuaLS updated to $latest"
 }
 update_luals

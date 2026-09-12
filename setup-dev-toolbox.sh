@@ -5,6 +5,7 @@ BOX="${BOX:-dev}"
 IDEA_FLATPAK="${IDEA_FLATPAK:-com.jetbrains.IntelliJ-IDEA-Ultimate}"
 VSCODE_FLATPAK="${VSCODE_FLATPAK:-com.visualstudio.code}"
 
+
 log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 warn() { printf '\n\033[1;33mWARNING: %s\033[0m\n' "$*" >&2; }
 
@@ -84,16 +85,16 @@ sudo dnf upgrade --refresh -y
 
 # Packages that are expected to exist on supported Fedora releases.
 PACKAGES=(
-  zsh neovim git gh curl wget unzip zip tar gzip bzip2 xz
-  jq yq ripgrep fd-find tree tmux shellcheck rsync file which less man-db findutils
+  zsh neovim git gh curl unzip zip tar gzip bzip2 xz
+  jq yq ripgrep fd-find tree tmux ShellCheck rsync file which less man-db findutils
   procps-ng iproute bind-utils
   gcc gcc-c++ make cmake ninja-build gdb lldb clang llvm lld pkgconf
   openssl-devel libffi-devel gmp gmp-devel ncurses ncurses-compat-libs
   golang zig
   lua lua-devel luarocks
-  perl perl-core perl-App-cpanminus
-  erlang rebar3
-  sbcl clisp guile
+  perl perl-App-cpanminus
+  erlang erlang-rebar3
+  sbcl clisp guile30
   gnucobol
   ruby ruby-devel readline-devel libyaml-devel
   sqlite sqlite-devel
@@ -101,6 +102,19 @@ PACKAGES=(
   direnv fzf
   helm
 )
+
+log "Selecting Fedora wget package"
+if rpm -q wget2-wget >/dev/null 2>&1; then
+  echo "wget2-wget is already installed."
+elif rpm -q wget1-wget >/dev/null 2>&1; then
+  echo "wget1-wget is already installed."
+elif dnf -q repoquery --available wget2-wget >/dev/null 2>&1; then
+  sudo dnf install -y wget2-wget
+elif dnf -q repoquery --available wget1-wget >/dev/null 2>&1; then
+  sudo dnf install -y wget1-wget
+else
+  warn "No Fedora wget provider package was found."
+fi
 
 log "Installing Fedora development packages"
 AVAILABLE=()
@@ -119,13 +133,17 @@ if ((${#MISSING[@]})); then
   warn "These packages are not available in the enabled Fedora repositories and were skipped: ${MISSING[*]}"
 fi
 
-# SWI-Prolog package naming differs from many distros; Fedora provides this metapackage.
-if dnf -q repoquery --available swi-prolog-full >/dev/null 2>&1; then
-  sudo dnf install -y swi-prolog-full
-elif dnf -q repoquery --available pl >/dev/null 2>&1; then
-  sudo dnf install -y pl
+# Install only the SWI-Prolog core system.  The larger swi-prolog-full/pl
+# metapackages pull in GUI/Java integration that is unnecessary for this CLI
+# development toolbox.
+if dnf -q repoquery --available swi-prolog-core >/dev/null 2>&1; then
+  sudo dnf install -y swi-prolog-core
+elif dnf -q repoquery --available swi-prolog-cli >/dev/null 2>&1; then
+  sudo dnf install -y swi-prolog-cli
+elif dnf -q repoquery --available swi-prolog-nox >/dev/null 2>&1; then
+  sudo dnf install -y swi-prolog-nox
 else
-  warn "SWI-Prolog package not found in enabled repositories."
+  warn "A minimal SWI-Prolog package was not found in enabled repositories."
 fi
 
 log "Installing kubectl from the upstream Kubernetes RPM repository"
@@ -141,6 +159,12 @@ K8SREPO
 sudo dnf install -y kubectl
 
 mkdir -p "$HOME/.local/bin" "$HOME/.local/opt" "$HOME/.config/dev-toolbox"
+
+# Fedora's guile30 package installs guile3.0. Provide the conventional
+# `guile` command in the user-local path expected by tooling.
+if command -v guile3.0 >/dev/null 2>&1; then
+  ln -sfn "$(command -v guile3.0)" "$HOME/.local/bin/guile"
+fi
 
 log "Installing Oh My Zsh"
 if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
@@ -226,39 +250,58 @@ if ! command -v agent >/dev/null 2>&1; then
 fi
 
 if [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]]; then
-  # SDKMAN's init script is not safe to source with Bash nounset (`set -u`)
-  # enabled. Disable nounset only while SDKMAN initializes, then restore it.
+  # SDKMAN's shell functions are not safe under Bash nounset (`set -u`).
+  # Keep nounset disabled for both initialization and SDKMAN commands,
+  # then restore the installer's strict mode afterward.
   set +u
   # shellcheck disable=SC1090
   source "$HOME/.sdkman/bin/sdkman-init.sh"
-  set -u
 
   sdk install java || true
   sdk install maven || true
   sdk install gradle || true
   sdk install quarkus || true
+
+  set -u
 fi
 
 log "Installing/updating Lua Language Server"
 install_luals() {
-  local arch asset tag tmp
+  local arch asset tag tmp luals_bin
   case "$(uname -m)" in
     x86_64) arch="x64" ;;
     aarch64) arch="arm64" ;;
-    *) warn "Unsupported architecture for LuaLS binary: $(uname -m)"; return 0 ;;
+    *) warn "Unsupported architecture for LuaLS binary: $(uname -m)"; return 1 ;;
   esac
 
-  tag="$(curl -fsSLI https://github.com/LuaLS/lua-language-server/releases/latest | awk -F/ 'tolower($1)=="location:" {gsub("\\r",""); print $NF}' | tail -1)"
-  [[ -n "$tag" ]] || { warn "Could not determine latest LuaLS release."; return 0; }
+  tag="$(curl -fsSL https://api.github.com/repos/LuaLS/lua-language-server/releases/latest | jq -r '.tag_name // empty')"
+  [[ -n "$tag" ]] || { warn "Could not determine latest LuaLS release."; return 1; }
+
   asset="lua-language-server-${tag}-linux-${arch}.tar.gz"
   tmp="$(mktemp -d)"
   curl -fL "https://github.com/LuaLS/lua-language-server/releases/download/${tag}/${asset}" -o "$tmp/luals.tar.gz"
+
   rm -rf "$HOME/.local/opt/lua-language-server"
   mkdir -p "$HOME/.local/opt/lua-language-server"
   tar -xzf "$tmp/luals.tar.gz" -C "$HOME/.local/opt/lua-language-server"
-  ln -sfn "$HOME/.local/opt/lua-language-server/bin/lua-language-server" "$HOME/.local/bin/lua-language-server"
+
+  luals_bin="$(find "$HOME/.local/opt/lua-language-server" -type f -name lua-language-server -perm /111 -print -quit)"
+  if [[ -z "$luals_bin" ]]; then
+    warn "LuaLS archive did not contain an executable lua-language-server."
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  cat > "$HOME/.local/bin/lua-language-server" <<EOF
+#!/usr/bin/env bash
+exec "$luals_bin" "\$@"
+EOF
+  chmod +x "$HOME/.local/bin/lua-language-server"
+
   printf '%s\n' "$tag" > "$HOME/.local/opt/lua-language-server/.version"
   rm -rf "$tmp"
+
+  "$HOME/.local/bin/lua-language-server" --version >/dev/null
 }
 install_luals
 
@@ -363,6 +406,7 @@ PASS=0
 FAIL=0
 WARN=0
 FAILED_TESTS=()
+CHECK_TIMEOUT="${CHECK_TIMEOUT:-20}"
 
 blue='\033[1;34m'
 green='\033[1;32m'
@@ -375,14 +419,18 @@ section() { printf '\n%b==> %s%b\n' "$blue" "$*" "$reset"; }
 check() {
   local name="$1"; shift
   local output rc
-  output="$("$@" 2>&1)"; rc=$?
+  output="$(timeout --foreground "${CHECK_TIMEOUT}s" "$@" 2>&1)"; rc=$?
   if (( rc == 0 )); then
     ((PASS++))
     printf '%bPASS%b  %-34s %s\n' "$green" "$reset" "$name" "$(printf '%s' "$output" | head -n 1)"
   else
     ((FAIL++))
     FAILED_TESTS+=("$name")
-    printf '%bFAIL%b  %-34s rc=%d\n' "$red" "$reset" "$name" "$rc"
+    if (( rc == 124 )); then
+      printf '%bFAIL%b  %-34s TIMEOUT after %ss\n' "$red" "$reset" "$name" "$CHECK_TIMEOUT"
+    else
+      printf '%bFAIL%b  %-34s rc=%d\n' "$red" "$reset" "$name" "$rc"
+    fi
     if [[ -n "$output" ]]; then
       printf '%s\n' "$output" | sed 's/^/      /' | head -n 12
     fi
@@ -393,22 +441,89 @@ check() {
 check_shell() {
   local name="$1" cmd="$2"
   local output rc
-  output="$(zsh -lic "$cmd" 2>&1)"; rc=$?
+  output="$(timeout --foreground "${CHECK_TIMEOUT}s" zsh -lc "$cmd" 2>&1)"; rc=$?
   if (( rc == 0 )); then
     ((PASS++))
     printf '%bPASS%b  %-34s %s\n' "$green" "$reset" "$name" "$(printf '%s' "$output" | tail -n 1)"
   else
     ((FAIL++))
     FAILED_TESTS+=("$name")
-    printf '%bFAIL%b  %-34s rc=%d\n' "$red" "$reset" "$name" "$rc"
+    if (( rc == 124 )); then
+      printf '%bFAIL%b  %-34s TIMEOUT after %ss\n' "$red" "$reset" "$name" "$CHECK_TIMEOUT"
+    else
+      printf '%bFAIL%b  %-34s rc=%d\n' "$red" "$reset" "$name" "$rc"
+    fi
     printf '%s\n' "$output" | sed 's/^/      /' | head -n 16
   fi
   return 0
 }
 
+
+check_in_tmp() {
+  local name="$1"; shift
+  local tmp output rc
+  tmp="$(mktemp -d)"
+
+  output="$(
+    cd "$tmp" &&
+    timeout --foreground "${CHECK_TIMEOUT}s" "$@" 2>&1
+  )"; rc=$?
+
+  rm -rf "$tmp"
+
+  if (( rc == 0 )); then
+    ((PASS++))
+    printf '%bPASS%b  %-34s %s\n' "$green" "$reset" "$name" "$(printf '%s' "$output" | head -n 1)"
+  else
+    ((FAIL++))
+    FAILED_TESTS+=("$name")
+    if (( rc == 124 )); then
+      printf '%bFAIL%b  %-34s TIMEOUT after %ss\n' "$red" "$reset" "$name" "$CHECK_TIMEOUT"
+    else
+      printf '%bFAIL%b  %-34s rc=%d\n' "$red" "$reset" "$name" "$rc"
+    fi
+    if [[ -n "$output" ]]; then
+      printf '%s\n' "$output" | sed 's/^/      /' | head -n 12
+    fi
+  fi
+  return 0
+}
+
+check_shell_in_tmp() {
+  local name="$1" cmd="$2"
+  local tmp output rc
+  tmp="$(mktemp -d)"
+
+  output="$(
+    timeout --foreground "${CHECK_TIMEOUT}s" \
+      env DEV_VERIFY_TMP="$tmp" zsh -lc 'cd "$DEV_VERIFY_TMP" && eval "$1"' zsh "$cmd" 2>&1
+  )"; rc=$?
+
+  rm -rf "$tmp"
+
+  if (( rc == 0 )); then
+    ((PASS++))
+    printf '%bPASS%b  %-34s %s\n' "$green" "$reset" "$name" "$(printf '%s' "$output" | tail -n 1)"
+  else
+    ((FAIL++))
+    FAILED_TESTS+=("$name")
+    if (( rc == 124 )); then
+      printf '%bFAIL%b  %-34s TIMEOUT after %ss\n' "$red" "$reset" "$name" "$CHECK_TIMEOUT"
+    else
+      printf '%bFAIL%b  %-34s rc=%d\n' "$red" "$reset" "$name" "$rc"
+    fi
+    if [[ -n "$output" ]]; then
+      printf '%s\n' "$output" | sed 's/^/      /' | head -n 16
+    fi
+  fi
+  return 0
+}
+
+
 if [[ ! -f /run/.toolboxenv ]]; then
   section "Host checks"
   check "toolbox" toolbox --version
+  check "Podman host" podman --version
   check "dev toolbox exists" toolbox run --container "$BOX" true
   check "VS Code Flatpak" flatpak info --user "$VSCODE_FLATPAK"
   check "IntelliJ Flatpak" flatpak info --user "$IDEA_FLATPAK"
@@ -428,6 +543,10 @@ if [[ ! -f /run/.toolboxenv ]]; then
   exit 0
 fi
 
+# Match the PATH expected by the managed development shell even though the
+# verifier itself runs under bash.
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.ghcup/bin:$PATH"
+
 section "Environment"
 printf 'OS:           '; source /etc/os-release; printf '%s\n' "${PRETTY_NAME:-unknown}"
 printf 'Architecture: %s\n' "$(uname -m)"
@@ -438,7 +557,7 @@ section "Toolbox identity and shell"
 check "toolbox marker" test -f /run/.toolboxenv
 check "zsh" zsh --version
 check "Oh My Zsh directory" test -f "$HOME/.oh-my-zsh/oh-my-zsh.sh"
-check_shell "Oh My Zsh startup" 'source ~/.zshrc >/dev/null; print -r -- OMZ_STARTUP_OK'
+check "Oh My Zsh startup" env TERM=dumb zsh -f -c 'source "$HOME/.zshrc" >/dev/null 2>&1; print -r -- OMZ_STARTUP_OK'
 
 # Verify every plugin configured by setup-dev-toolbox.sh exists in the installed OMZ tree.
 OMZ_PLUGINS=(
@@ -451,95 +570,98 @@ for plugin in "${OMZ_PLUGINS[@]}"; do
 done
 
 section "Core CLI tools"
-check "neovim" nvim --version
-check "git" git --version
-check "GitHub CLI" gh --version
-check "curl" curl --version
-check "wget" wget --version
-check "jq" jq --version
-check "yq" yq --version
-check "ripgrep" rg --version
-check "fd" fd --version
-check "fzf" fzf --version
-check "direnv" direnv version
-check "tmux" tmux -V
-check "shellcheck" shellcheck --version
-check "rsync" rsync --version
-check "tree" tree --version
+check_in_tmp "neovim" nvim --version
+check_in_tmp "git" git --version
+check_in_tmp "GitHub CLI" gh --version
+check_in_tmp "curl" curl --version
+check_in_tmp "wget" wget --version
+check_in_tmp "jq" jq --version
+check_in_tmp "yq" yq --version
+check_in_tmp "ripgrep" rg --version
+check_in_tmp "fd" fd --version
+check_in_tmp "fzf" fzf --version
+check_in_tmp "direnv" direnv version
+check_in_tmp "tmux" tmux -V
+check_in_tmp "shellcheck" shellcheck --version
+check_in_tmp "rsync" rsync --version
+check_in_tmp "tree" tree --version
 
 section "Native build toolchain"
-check "gcc" gcc --version
-check "g++" g++ --version
-check "clang" clang --version
-check "make" make --version
-check "cmake" cmake --version
-check "ninja" ninja --version
-check "gdb" gdb --version
-check "lldb" lldb --version
-check "pkg-config" pkg-config --version
+check_in_tmp "gcc" gcc --version
+check_in_tmp "g++" g++ --version
+check_in_tmp "clang" clang --version
+check_in_tmp "make" make --version
+check_in_tmp "cmake" cmake --version
+check_in_tmp "ninja" ninja --version
+check_in_tmp "gdb" gdb --version
+check_in_tmp "lldb" lldb --version
+check_in_tmp "pkg-config" pkg-config --version
 
 section "Java / SDKMAN"
 check_shell "SDKMAN" 'sdk version | tail -n 1'
-check_shell "Java" 'java --version 2>&1 | head -n 1'
-check_shell "Maven" 'mvn --version | head -n 1'
-check_shell "Gradle" 'gradle --version | grep -m1 "Gradle "'
-check_shell "Quarkus CLI" 'quarkus --version'
+check_shell_in_tmp "Java" 'java --version 2>&1 | head -n 1'
+check_shell_in_tmp "Maven" 'mvn --version | head -n 1'
+check_shell_in_tmp "Gradle" 'gradle --version | grep -m1 "Gradle "'
+check_shell_in_tmp "Quarkus CLI" 'quarkus --version'
 
 section "Node / nvm"
-check_shell "nvm" 'nvm --version'
-check_shell "Node" 'node --version'
-check_shell "npm" 'npm --version'
+check "nvm" bash -c 'source "$HOME/.nvm/nvm.sh" && nvm --version'
+check_shell_in_tmp "Node" 'node --version'
+check_shell_in_tmp "npm" 'npm --version'
 
 section "AI coding tools"
-check_shell "OpenAI Codex CLI" 'source "$HOME/.nvm/nvm.sh"; nvm use default >/dev/null; codex --version'
-check "Claude Code" claude --version
-check "Cursor Agent CLI" agent --version
-check_shell "GitHub Copilot CLI" 'source "$HOME/.nvm/nvm.sh"; nvm use default >/dev/null; copilot --version'
+check_shell_in_tmp "OpenAI Codex CLI" 'source "$HOME/.nvm/nvm.sh"; nvm use default >/dev/null; codex --version'
+check_in_tmp "Claude Code" claude --version
+check_in_tmp "Cursor Agent CLI" agent --version
+check_shell_in_tmp "GitHub Copilot CLI" 'source "$HOME/.nvm/nvm.sh"; nvm use default >/dev/null; copilot --version'
 
 section "Rust"
-check_shell "rustup" 'rustup --version | head -n 1'
-check_shell "rustc" 'rustc --version'
-check_shell "cargo" 'cargo --version'
-check_shell "rustfmt" 'rustfmt --version'
-check_shell "clippy" 'cargo clippy --version'
-check_shell "rust-analyzer" 'rust-analyzer --version'
+check_shell_in_tmp "rustup" 'rustup --version | head -n 1'
+check_shell_in_tmp "rustc" 'rustc --version'
+check_shell_in_tmp "cargo" 'cargo --version'
+check_shell_in_tmp "rustfmt" 'rustfmt --version'
+check_shell_in_tmp "clippy" 'cargo clippy --version'
+check_shell_in_tmp "rust-analyzer" 'rust-analyzer --version'
 
 section "Haskell / GHCup"
-check_shell "GHCup" 'ghcup --version'
-check_shell "GHC" 'ghc --version'
-check_shell "Cabal" 'cabal --version | head -n 1'
-check_shell "Stack" 'stack --version | head -n 1'
-check_shell "Haskell Language Server" 'haskell-language-server-wrapper --version'
+check_shell_in_tmp "GHCup" 'ghcup --version'
+check_shell_in_tmp "GHC" 'ghc --version'
+check_shell_in_tmp "Cabal" 'cabal --version | head -n 1'
+check_shell_in_tmp "Stack" 'stack --version | head -n 1'
+check_shell_in_tmp "Haskell Language Server" 'haskell-language-server-wrapper --version'
 
 section "Other languages"
-check "Go" go version
-check "Zig" zig version
-check "Lua" lua -v
-check "LuaRocks" luarocks --version
-check "Lua Language Server" lua-language-server --version
-check "Perl" perl -v
-check "cpanm" cpanm --version
-check "Erlang" erl -version
-check "rebar3" rebar3 version
-check "Ruby" ruby --version
-check "RubyGems" gem --version
-check "GnuCOBOL" cobc --version
-check "SBCL" sbcl --version
-check "CLISP" clisp --version
-check "Guile" guile --version
-check "SWI-Prolog" swipl --version
+check_in_tmp "Go" go version
+check_in_tmp "Zig" zig version
+check_in_tmp "Lua" lua -v
+check_in_tmp "LuaRocks" luarocks --version
+check_in_tmp "Lua Language Server" "$HOME/.local/bin/lua-language-server" --version
+check "LuaLS command path" bash -c 'command -v lua-language-server'
+check "LuaLS resolved path" bash -c 'p="$(command -v lua-language-server)" && readlink -f "$p"'
+check_in_tmp "Perl" perl -v
+check "cpanm command" bash -c 'command -v cpanm >/dev/null'
+check_in_tmp "cpanminus module" perl -MApp::cpanminus -e 'print "$App::cpanminus::VERSION\n"'
+
+check_in_tmp "Erlang" erl -version
+check_in_tmp "rebar3" rebar3 version
+check_in_tmp "Ruby" ruby --version
+check_in_tmp "RubyGems" gem --version
+check_in_tmp "GnuCOBOL" cobc --version
+check_in_tmp "SBCL" sbcl --version
+check_in_tmp "CLISP" clisp --version
+check_in_tmp "Guile" guile --version
+check_in_tmp "SWI-Prolog" swipl --version
 
 section "Database clients"
-check "SQLite" sqlite3 --version
-check "PostgreSQL psql" psql --version
-check "PostgreSQL pg_dump" pg_dump --version
-check "PostgreSQL pg_restore" pg_restore --version
+check_in_tmp "SQLite" sqlite3 --version
+check_in_tmp "PostgreSQL psql" psql --version
+check_in_tmp "PostgreSQL pg_dump" pg_dump --version
+check_in_tmp "PostgreSQL pg_restore" pg_restore --version
 
 section "Containers / Kubernetes / OpenShift"
-check "Podman host integration" podman --version
-check "kubectl" kubectl version --client
-check "Helm" helm version --short
-check "OpenShift oc" oc version --client
+check_in_tmp "kubectl" kubectl version --client
+check_in_tmp "Helm" helm version --short
+check_in_tmp "OpenShift oc" oc version --client
 
 section "PATH and managed files"
 check "~/.local/bin in PATH" bash -c 'command -v lua-language-server >/dev/null && command -v oc >/dev/null'
