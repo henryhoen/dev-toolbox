@@ -2,7 +2,6 @@
 set -Eeuo pipefail
 
 BOX="${BOX:-dev}"
-IDEA_FLATPAK="${IDEA_FLATPAK:-com.jetbrains.IntelliJ-IDEA-Ultimate}"
 VSCODE_FLATPAK="${VSCODE_FLATPAK:-com.visualstudio.code}"
 
 
@@ -20,8 +19,63 @@ command -v flatpak >/dev/null || { echo "flatpak is required on the host." >&2; 
 log "Ensuring Flathub is configured"
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
-log "Installing GUI IDEs as Flatpaks"
-flatpak install --user -y flathub "$VSCODE_FLATPAK" "$IDEA_FLATPAK"
+log "Installing VS Code as a Flatpak"
+flatpak install --user -y flathub "$VSCODE_FLATPAK"
+
+log "Installing JetBrains Toolbox on the host"
+install_jetbrains_toolbox() {
+  local distribution metadata_url download_url version tmp binary
+  case "$(uname -m)" in
+    x86_64) distribution="linux" ;;
+    aarch64) distribution="linuxARM64" ;;
+    *) warn "Unsupported architecture for JetBrains Toolbox: $(uname -m)"; return 1 ;;
+  esac
+
+  metadata_url="https://data.services.jetbrains.com/products/releases?code=TBA&latest=true&type=release"
+  tmp="$(mktemp -d)"
+  curl -fsSL "$metadata_url" -o "$tmp/toolbox.json"
+  read -r version download_url < <(
+    python3 - "$distribution" "$tmp/toolbox.json" <<'PYTOOLBOX'
+import json, sys
+dist, path = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh)["TBA"][0]
+print(data["version"], data["downloads"][dist]["link"])
+PYTOOLBOX
+  )
+
+  [[ -n "$version" && -n "$download_url" ]] || { warn "Could not resolve the latest JetBrains Toolbox release"; return 1; }
+
+  mkdir -p "$HOME/.local/opt/jetbrains-toolbox" "$HOME/.local/bin"
+  curl -fL "$download_url" -o "$tmp/jetbrains-toolbox.tar.gz"
+  rm -rf "$HOME/.local/opt/jetbrains-toolbox"
+  mkdir -p "$HOME/.local/opt/jetbrains-toolbox"
+  tar -xzf "$tmp/jetbrains-toolbox.tar.gz" -C "$HOME/.local/opt/jetbrains-toolbox" --strip-components=1
+
+  binary="$HOME/.local/opt/jetbrains-toolbox/bin/jetbrains-toolbox"
+  [[ -x "$binary" ]] || { warn "JetBrains Toolbox executable not found after extraction"; return 1; }
+  ln -sfn "$binary" "$HOME/.local/bin/jetbrains-toolbox"
+  printf '%s\n' "$version" > "$HOME/.local/opt/jetbrains-toolbox/.version"
+
+  mkdir -p "$HOME/.local/share/applications"
+  cat > "$HOME/.local/share/applications/jetbrains-toolbox.desktop" <<EOF_TOOLBOX_DESKTOP
+[Desktop Entry]
+Type=Application
+Name=JetBrains Toolbox
+Comment=Install and manage JetBrains IDEs
+Exec=$HOME/.local/bin/jetbrains-toolbox
+Icon=applications-development
+Terminal=false
+Categories=Development;IDE;
+StartupNotify=true
+EOF_TOOLBOX_DESKTOP
+  chmod 0644 "$HOME/.local/share/applications/jetbrains-toolbox.desktop"
+  command -v update-desktop-database >/dev/null 2>&1 && \
+    update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
+
+  echo "JetBrains Toolbox installed: $version"
+}
+install_jetbrains_toolbox
 
 # Dev Containers makes VS Code capable of attaching to the running Toolbx container.
 # Failure is non-fatal because extension installation behavior can vary between builds.
@@ -400,7 +454,6 @@ set -uo pipefail
 
 BOX="${BOX:-dev}"
 VSCODE_FLATPAK="${VSCODE_FLATPAK:-com.visualstudio.code}"
-IDEA_FLATPAK="${IDEA_FLATPAK:-com.jetbrains.IntelliJ-IDEA-Ultimate}"
 
 PASS=0
 FAIL=0
@@ -441,7 +494,7 @@ check() {
 check_shell() {
   local name="$1" cmd="$2"
   local output rc
-  output="$(timeout --foreground "${CHECK_TIMEOUT}s" zsh -lc "$cmd" 2>&1)"; rc=$?
+  output="$(timeout --foreground "${CHECK_TIMEOUT}s" zsh -lc 'source "$HOME/.zshrc" >/dev/null 2>&1; eval "$1"' zsh "$cmd" 2>&1)"; rc=$?
   if (( rc == 0 )); then
     ((PASS++))
     printf '%bPASS%b  %-34s %s\n' "$green" "$reset" "$name" "$(printf '%s' "$output" | tail -n 1)"
@@ -496,7 +549,7 @@ check_shell_in_tmp() {
 
   output="$(
     timeout --foreground "${CHECK_TIMEOUT}s" \
-      env DEV_VERIFY_TMP="$tmp" zsh -lc 'cd "$DEV_VERIFY_TMP" && eval "$1"' zsh "$cmd" 2>&1
+      env DEV_VERIFY_TMP="$tmp" zsh -lc 'source "$HOME/.zshrc" >/dev/null 2>&1; cd "$DEV_VERIFY_TMP" && eval "$1"' zsh "$cmd" 2>&1
   )"; rc=$?
 
   rm -rf "$tmp"
@@ -526,7 +579,10 @@ if [[ ! -f /run/.toolboxenv ]]; then
   check "Podman host" podman --version
   check "dev toolbox exists" toolbox run --container "$BOX" true
   check "VS Code Flatpak" flatpak info --user "$VSCODE_FLATPAK"
-  check "IntelliJ Flatpak" flatpak info --user "$IDEA_FLATPAK"
+  check "JetBrains Toolbox launcher" test -x "$HOME/.local/bin/jetbrains-toolbox"
+  check "JetBrains Toolbox binary" test -x "$HOME/.local/opt/jetbrains-toolbox/bin/jetbrains-toolbox"
+  check "JetBrains Toolbox version marker" test -s "$HOME/.local/opt/jetbrains-toolbox/.version"
+  check "JetBrains Toolbox desktop entry" test -s "$HOME/.local/share/applications/jetbrains-toolbox.desktop"
   check "Cursor AppImage" test -x "$HOME/.local/opt/cursor/cursor.AppImage"
   check "Cursor desktop entry" test -s "$HOME/.local/share/applications/cursor.desktop"
 
@@ -690,7 +746,8 @@ fi
 log "Done"
 echo "Toolbox: $BOX"
 echo "VS Code: $VSCODE_FLATPAK"
-echo "IntelliJ: $IDEA_FLATPAK"
+echo "JetBrains Toolbox: $HOME/.local/bin/jetbrains-toolbox"
+echo "Install JetBrains IDEs from Toolbox after first launch."
 echo
 echo "For VS Code, start the '$BOX' toolbox and use Dev Containers -> Attach to Running Container."
 echo "IntelliJ can directly see SDKMAN/GHCup/rustup files under your shared home; for toolbox-only system tools, use its terminal/toolchain container support where applicable."

@@ -3,7 +3,6 @@ set -Eeuo pipefail
 
 BOX="${BOX:-dev}"
 VSCODE_FLATPAK="${VSCODE_FLATPAK:-com.visualstudio.code}"
-IDEA_FLATPAK="${IDEA_FLATPAK:-com.jetbrains.IntelliJ-IDEA-Ultimate}"
 
 log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 warn() { printf '\n\033[1;33mWARNING: %s\033[0m\n' "$*" >&2; }
@@ -15,6 +14,50 @@ fi
 
 log "Updating Flatpak applications"
 flatpak update --user -y
+
+
+log "Updating JetBrains Toolbox"
+update_jetbrains_toolbox() {
+  local distribution metadata_url download_url version current tmp binary
+  case "$(uname -m)" in
+    x86_64) distribution="linux" ;;
+    aarch64) distribution="linuxARM64" ;;
+    *) warn "Unsupported architecture for JetBrains Toolbox: $(uname -m)"; return 0 ;;
+  esac
+
+  metadata_url="https://data.services.jetbrains.com/products/releases?code=TBA&latest=true&type=release"
+  tmp="$(mktemp -d)"
+  curl -fsSL "$metadata_url" -o "$tmp/toolbox.json" || { rm -rf "$tmp"; warn "Could not fetch JetBrains Toolbox release metadata"; return 0; }
+  read -r version download_url < <(
+    python3 - "$distribution" "$tmp/toolbox.json" <<'PYTOOLBOX'
+import json, sys
+dist, path = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh)["TBA"][0]
+print(data["version"], data["downloads"][dist]["link"])
+PYTOOLBOX
+  )
+  current="$(cat "$HOME/.local/opt/jetbrains-toolbox/.version" 2>/dev/null || true)"
+  if [[ "$version" == "$current" && -x "$HOME/.local/opt/jetbrains-toolbox/bin/jetbrains-toolbox" ]]; then
+    echo "JetBrains Toolbox already current: $current"
+    rm -rf "$tmp"
+    return 0
+  fi
+  curl -fL "$download_url" -o "$tmp/jetbrains-toolbox.tar.gz" || { rm -rf "$tmp"; warn "JetBrains Toolbox update download failed"; return 0; }
+  rm -rf "$HOME/.local/opt/jetbrains-toolbox"
+  mkdir -p "$HOME/.local/opt/jetbrains-toolbox" "$HOME/.local/bin"
+  tar -xzf "$tmp/jetbrains-toolbox.tar.gz" -C "$HOME/.local/opt/jetbrains-toolbox" --strip-components=1
+  binary="$HOME/.local/opt/jetbrains-toolbox/bin/jetbrains-toolbox"
+  if [[ -x "$binary" ]]; then
+    ln -sfn "$binary" "$HOME/.local/bin/jetbrains-toolbox"
+    printf '%s\n' "$version" > "$HOME/.local/opt/jetbrains-toolbox/.version"
+    echo "JetBrains Toolbox updated to $version"
+  else
+    warn "JetBrains Toolbox executable not found after update"
+  fi
+  rm -rf "$tmp"
+}
+update_jetbrains_toolbox
 
 log "Updating Cursor desktop AppImage"
 update_cursor_desktop() {

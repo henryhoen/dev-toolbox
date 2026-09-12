@@ -24,7 +24,8 @@ Fedora COSMIC Atomic host
 │
 ├── GUI applications
 │   ├── Visual Studio Code      Flatpak
-│   ├── IntelliJ IDEA          Flatpak
+│   ├── JetBrains Toolbox     user-local tarball
+│   │   └── JetBrains IDEs     managed by Toolbox
 │   └── Cursor                 user-local AppImage
 │
 └── Toolbx: dev
@@ -77,7 +78,7 @@ For non-interactive CI/manual testing where you intentionally want destructive c
 ./cleanup-dev-toolbox.sh --yes
 ```
 
-The cleanup script removes the selected Toolbx container and the user-level development environment created/managed by this project, including Oh My Zsh, SDKMAN, nvm, rustup/Cargo, GHCup, LuaLS, generated helpers/configuration, Cursor artifacts, VS Code, and IntelliJ. It also removes `~/.zshrc` so setup can prove that it can recreate the shell configuration from scratch.
+The cleanup script removes the selected Toolbx container and the user-level development environment created/managed by this project, including Oh My Zsh, SDKMAN, nvm, rustup/Cargo, GHCup, LuaLS, generated helpers/configuration, Cursor artifacts, VS Code, JetBrains Toolbox, and IDEs installed through Toolbox. It also removes `~/.zshrc` so setup can prove that it can recreate the shell configuration from scratch.
 
 After cleanup, perform the full acceptance cycle and capture logs:
 
@@ -120,6 +121,7 @@ Run from the Fedora Atomic host:
 The updater handles:
 
 - Flatpak application updates
+- JetBrains Toolbox
 - DNF updates inside `dev`
 - Cursor desktop AppImage
 - Oh My Zsh
@@ -325,6 +327,23 @@ Authentication is intentionally left to the user; the setup/verifier should not 
 
 ## IDEs
 
+JetBrains Toolbox is installed on the host. Setup creates a user desktop entry at `~/.local/share/applications/jetbrains-toolbox.desktop`, allowing it to be launched from COSMIC search.
+
+
+### JetBrains Toolbox and JetBrains IDEs
+
+JetBrains Toolbox is installed on the Fedora host as a user-local application under `~/.local/opt/jetbrains-toolbox`. It is not installed inside the `dev` Toolbx container.
+
+After setup, launch it with:
+
+```bash
+jetbrains-toolbox
+```
+
+Install IntelliJ IDEA, PyCharm, CLion, or other JetBrains IDEs from Toolbox. Those IDEs are host-side GUI applications managed by Toolbox; they are not installed inside `dev`. Because Toolbx shares `$HOME`, host-side JetBrains IDEs can directly see user-managed SDKs such as SDKMAN, rustup, GHCup, and nvm data under your home directory. Tools installed only into the Toolbx filesystem remain container-side.
+
+The setup script installs Toolbox itself but intentionally does not launch it or silently install an IDE.
+
 ### Visual Studio Code
 
 VS Code is installed as a Flatpak. The setup attempts to install the **Dev Containers** extension so VS Code can attach to the running `dev` Toolbx container.
@@ -343,10 +362,6 @@ Then attach VS Code to the running `dev` container so language servers and compi
 Cursor desktop is installed as a user-local AppImage. Cursor Agent is installed separately inside the toolbox.
 
 Cursor is VS Code-derived and can use a container-attached workflow where supported.
-
-### IntelliJ IDEA
-
-IntelliJ is currently installed as a Flatpak. Toolchains installed beneath the shared home directory (SDKMAN, GHCup, rustup, etc.) are visible as files from both host/user application and toolbox contexts, while DNF-only toolbox binaries may require IntelliJ terminal/container/toolchain integration.
 
 ## Oh My Zsh
 

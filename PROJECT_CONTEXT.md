@@ -11,7 +11,8 @@ Fedora COSMIC Atomic host
 ├── Toolbx / Podman / Flatpak and host integration
 ├── GUI development applications
 │   ├── Visual Studio Code (Flatpak)
-│   ├── IntelliJ IDEA (Flatpak)
+│   ├── JetBrains Toolbox (user-local tarball)
+│   │   └── JetBrains IDEs (managed by Toolbox)
 │   └── Cursor (user-local AppImage)
 └── Toolbx: dev
     └── mutable programming environment
@@ -23,12 +24,15 @@ The user prefers a broad, long-lived toolbox rather than one toolbox per languag
 
 ### setup-dev-toolbox.sh
 
+JetBrains Toolbox is host-owned and setup creates a user desktop entry so COSMIC application search can launch it.
+
 Run from the host.
 
 Responsibilities:
 
 - Ensure Flathub exists for the current user.
-- Install VS Code and IntelliJ Flatpaks.
+- Install VS Code as a Flatpak.
+- Install JetBrains Toolbox as a user-local host application; JetBrains IDEs are installed interactively through Toolbox.
 - Install/update Cursor desktop as a user-local AppImage.
 - Create Toolbx container `dev` if missing.
 - Install Fedora development packages in the toolbox.
@@ -66,7 +70,8 @@ Responsibilities:
 - Remove the selected Toolbx container (`dev` by default, configurable with `BOX`).
 - Remove project-managed shared-home state so a subsequent setup is a true first-install test.
 - Remove Oh My Zsh, SDKMAN, nvm, rustup/Cargo, GHCup, LuaLS, generated helpers/configuration, AI-tool wrappers/installations, and Cursor user-local artifacts created by this project.
-- Remove VS Code and IntelliJ Flatpaks installed by this project.
+- Remove the VS Code Flatpak installed by this project.
+- Remove JetBrains Toolbox, its managed IDE/application tree, and JetBrains config/cache for the complete-clean-test workflow.
 - Remove `~/.zshrc` for the complete-clean-test workflow so setup must recreate it.
 - Require explicit confirmation unless `--yes` is provided.
 - Be idempotent and verify cleanup at the end.
@@ -224,7 +229,7 @@ Host-owned examples:
 - Toolbx
 - Flatpak
 - rpm-ostree / bootc / host system management
-- GUI IDE/editors
+- GUI IDE/editors, including JetBrains Toolbox-managed IDEs
 
 Toolbox-owned examples:
 

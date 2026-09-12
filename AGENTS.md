@@ -20,7 +20,7 @@ Before changing anything, read:
 - These scripts target Fedora COSMIC Atomic. Do not turn the host into a traditional mutable workstation with broad `rpm-ostree` package layering.
 - `setup-dev-toolbox.sh`, `update-dev-toolbox.sh`, and `cleanup-dev-toolbox.sh` are launched from the Fedora Atomic host, not from inside Toolbx.
 - Development CLI tools belong in Toolbx unless there is a strong host-specific reason.
-- GUI IDE/editors belong on the host/user application layer. Current design uses Flatpak for VS Code and IntelliJ and a user-local AppImage for Cursor.
+- GUI IDE/editors belong on the host/user application layer. Current design uses Flatpak for VS Code, a user-local official JetBrains Toolbox tarball for JetBrains IDEs, and a user-local AppImage for Cursor. JetBrains IDEs are managed by Toolbox on the host, not installed inside Toolbx.
 - Keep the setup script idempotent and safe to rerun on an already-configured machine.
 - Prefer official upstream installers/repos or Fedora packages. Do not introduce random COPR repositories unless specifically requested.
 - Keep `$HOME` sharing between the host and Toolbx in mind. Do not use `chsh` to change the user's host login shell merely to configure the toolbox.
@@ -51,7 +51,7 @@ Examples:
 - Allowed: `ghcup upgrade`
 - Not allowed: silently switch to newer GHC/HLS/Stack versions
 
-Manually downloaded tools such as Lua Language Server, OpenShift `oc`, Cursor desktop, Claude Code, Cursor Agent, Codex CLI, and GitHub Copilot CLI should be updated by the update script when practical.
+Manually downloaded tools such as JetBrains Toolbox, Lua Language Server, OpenShift `oc`, Cursor desktop, Claude Code, Cursor Agent, Codex CLI, and GitHub Copilot CLI should be updated by the update script when practical.
 
 ## Testing requirements
 
@@ -81,6 +81,7 @@ When a user provides failed setup/update/verifier output, diagnose the actual ca
 - Keep `cleanup-dev-toolbox.sh` aligned with everything setup creates. If setup begins creating a new managed file, user-level installation, Flatpak, AppImage, wrapper, or config directory, decide whether cleanup must remove it and update cleanup in the same change.
 - Cleanup must honor `BOX`, be safe to rerun, and require explicit confirmation unless `--yes` is supplied.
 - Cleanup is intentionally destructive to project-managed development state. Do not broaden it to unrelated user files or unrelated Flatpaks.
+- Cleanup must remove JetBrains Toolbox and `~/.local/share/JetBrains/Toolbox` so IDEs installed through Toolbox are also removed during a complete clean reinstall test.
 - A full acceptance test is: cleanup -> setup -> verify -> update -> verify. Capture logs when debugging failures.
 - When a clean-install failure is reported, patch setup/update/verify/cleanup as needed so the repository remains internally consistent.
 

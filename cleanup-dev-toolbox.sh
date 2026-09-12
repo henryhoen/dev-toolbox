@@ -3,8 +3,6 @@ set -Eeuo pipefail
 
 BOX="${BOX:-dev}"
 VSCODE_FLATPAK="${VSCODE_FLATPAK:-com.visualstudio.code}"
-IDEA_FLATPAK="${IDEA_FLATPAK:-com.jetbrains.IntelliJ-IDEA-Ultimate}"
-IDEA_COMMUNITY_FLATPAK="${IDEA_COMMUNITY_FLATPAK:-com.jetbrains.IntelliJ-IDEA-Community}"
 ASSUME_YES=0
 
 log()  { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
@@ -20,8 +18,6 @@ Run this on the Fedora Atomic host, not from inside Toolbx.
 Environment variables:
   BOX                  Toolbox name to remove (default: dev)
   VSCODE_FLATPAK       VS Code Flatpak ID
-  IDEA_FLATPAK         IntelliJ Ultimate Flatpak ID
-  IDEA_COMMUNITY_FLATPAK IntelliJ Community Flatpak ID
 
 Options:
   -y, --yes             Skip the destructive confirmation prompt
@@ -54,7 +50,9 @@ This will remove the development environment for toolbox '$BOX', including:
   - SDKMAN, nvm, rustup/Cargo, and GHCup installations and managed runtimes
   - LuaLS, OpenShift oc, Codex/Copilot wrappers, Claude Code, Cursor Agent
   - Cursor desktop AppImage/configuration installed by this project
-  - VS Code and IntelliJ Flatpaks, including their per-user Flatpak app data
+  - VS Code Flatpak, including its per-user Flatpak app data
+  - JetBrains Toolbox and every IDE/application installed through Toolbox
+  - JetBrains Toolbox/IDE configuration and cache managed by this clean-test workflow
   - generated dev-toolbox configuration and verification helpers
 
 Your source repositories and unrelated files in your home directory are not removed.
@@ -90,6 +88,10 @@ log "Removing manually installed developer tools"
 rm -rf -- \
   "$HOME/.local/opt/lua-language-server" \
   "$HOME/.local/opt/cursor" \
+  "$HOME/.local/opt/jetbrains-toolbox" \
+  "$HOME/.local/share/JetBrains/Toolbox" \
+  "$HOME/.config/JetBrains" \
+  "$HOME/.cache/JetBrains" \
   "$HOME/.local/share/cursor-agent"
 
 rm -f -- \
@@ -103,7 +105,10 @@ rm -f -- \
   "$HOME/.local/bin/agent" \
   "$HOME/.local/bin/cursor-agent" \
   "$HOME/.local/bin/cursor" \
-  "$HOME/.local/share/applications/cursor.desktop"
+  "$HOME/.local/bin/jetbrains-toolbox" \
+  "$HOME/.local/share/applications/cursor.desktop" \
+  "$HOME/.local/share/applications/jetbrains-toolbox.desktop" \
+  "$HOME/.config/autostart/jetbrains-toolbox.desktop"
 
 # Native Claude Code may keep installation/configuration state here.
 rm -rf -- "$HOME/.claude"
@@ -119,9 +124,9 @@ if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
 fi
 
-log "Removing VS Code and IntelliJ Flatpaks and their app data"
+log "Removing VS Code Flatpak and its app data"
 if command -v flatpak >/dev/null 2>&1; then
-  for app in "$VSCODE_FLATPAK" "$IDEA_FLATPAK" "$IDEA_COMMUNITY_FLATPAK"; do
+  for app in "$VSCODE_FLATPAK"; do
     if flatpak info --user "$app" >/dev/null 2>&1; then
       flatpak uninstall --user --delete-data -y "$app" || true
     else
@@ -155,6 +160,13 @@ check_absent_path "$HOME/.ghcup"
 check_absent_path "$HOME/.config/dev-toolbox"
 check_absent_path "$HOME/.local/opt/lua-language-server"
 check_absent_path "$HOME/.local/opt/cursor"
+check_absent_path "$HOME/.local/opt/jetbrains-toolbox"
+check_absent_path "$HOME/.local/bin/jetbrains-toolbox"
+check_absent_path "$HOME/.local/share/JetBrains/Toolbox"
+check_absent_path "$HOME/.config/JetBrains"
+check_absent_path "$HOME/.cache/JetBrains"
+check_absent_path "$HOME/.local/share/applications/jetbrains-toolbox.desktop"
+check_absent_path "$HOME/.config/autostart/jetbrains-toolbox.desktop"
 check_absent_path "$HOME/.local/share/cursor-agent"
 
 if command -v toolbox >/dev/null 2>&1 && toolbox run --container "$BOX" true >/dev/null 2>&1; then
@@ -165,7 +177,7 @@ else
 fi
 
 if command -v flatpak >/dev/null 2>&1; then
-  for app in "$VSCODE_FLATPAK" "$IDEA_FLATPAK" "$IDEA_COMMUNITY_FLATPAK"; do
+  for app in "$VSCODE_FLATPAK"; do
     if flatpak info --user "$app" >/dev/null 2>&1; then
       printf 'FAIL  Flatpak still installed: %s\n' "$app"
       failures=$((failures + 1))

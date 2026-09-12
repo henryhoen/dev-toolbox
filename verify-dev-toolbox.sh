@@ -3,7 +3,6 @@ set -uo pipefail
 
 BOX="${BOX:-dev}"
 VSCODE_FLATPAK="${VSCODE_FLATPAK:-com.visualstudio.code}"
-IDEA_FLATPAK="${IDEA_FLATPAK:-com.jetbrains.IntelliJ-IDEA-Ultimate}"
 
 PASS=0
 FAIL=0
@@ -40,7 +39,7 @@ check() {
 check_shell() {
   local name="$1" cmd="$2"
   local output rc
-  output="$(timeout --foreground "${CHECK_TIMEOUT}s" zsh -lc "$cmd" 2>&1)"; rc=$?
+  output="$(timeout --foreground "${CHECK_TIMEOUT}s" zsh -lc 'source "$HOME/.zshrc" >/dev/null 2>&1; eval "$1"' zsh "$cmd" 2>&1)"; rc=$?
   if (( rc == 0 )); then
     ((PASS++))
     printf '%bPASS%b  %-34s %s\n' "$green" "$reset" "$name" "$(printf '%s' "$output" | tail -n 1)"
@@ -91,7 +90,7 @@ check_shell_in_tmp() {
 
   output="$(
     timeout --foreground "${CHECK_TIMEOUT}s" \
-      env DEV_VERIFY_TMP="$tmp" zsh -lc 'cd "$DEV_VERIFY_TMP" && eval "$1"' zsh "$cmd" 2>&1
+      env DEV_VERIFY_TMP="$tmp" zsh -lc 'source "$HOME/.zshrc" >/dev/null 2>&1; cd "$DEV_VERIFY_TMP" && eval "$1"' zsh "$cmd" 2>&1
   )"; rc=$?
 
   rm -rf "$tmp"
@@ -121,7 +120,10 @@ if [[ ! -f /run/.toolboxenv ]]; then
   check "Podman host" podman --version
   check "dev toolbox exists" toolbox run --container "$BOX" true
   check "VS Code Flatpak" flatpak info --user "$VSCODE_FLATPAK"
-  check "IntelliJ Flatpak" flatpak info --user "$IDEA_FLATPAK"
+  check "JetBrains Toolbox launcher" test -x "$HOME/.local/bin/jetbrains-toolbox"
+  check "JetBrains Toolbox binary" test -x "$HOME/.local/opt/jetbrains-toolbox/bin/jetbrains-toolbox"
+  check "JetBrains Toolbox version marker" test -s "$HOME/.local/opt/jetbrains-toolbox/.version"
+  check "JetBrains Toolbox desktop entry" test -s "$HOME/.local/share/applications/jetbrains-toolbox.desktop"
   check "Cursor AppImage" test -x "$HOME/.local/opt/cursor/cursor.AppImage"
   check "Cursor desktop entry" test -s "$HOME/.local/share/applications/cursor.desktop"
 
