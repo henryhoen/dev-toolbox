@@ -72,7 +72,7 @@ else
 fi
 
 log "Installing development environment inside '$BOX'"
-toolbox run --container "$BOX" bash -s <<'INNER'
+toolbox run --container "$BOX" env DEV_TOOLBOX_NAME="$BOX" bash -s <<'INNER'
 set -Eeuo pipefail
 
 log() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
@@ -333,14 +333,14 @@ cat "$TMP_RC" >> "$HOME/.zshrc" 2>/dev/null || true
 rm -f "$TMP_RC"
 
 log "Creating convenience wrappers"
-cat > "$HOME/.local/bin/dev-shell" <<'EOS'
+cat > "$HOME/.local/bin/dev-shell" <<EOS
 #!/usr/bin/env bash
-exec toolbox run --container dev zsh -l
+exec toolbox run --container "$DEV_TOOLBOX_NAME" zsh -l
 EOS
 chmod +x "$HOME/.local/bin/dev-shell"
 
 log "Toolbox installation complete"
-printf '\nUse: toolbox enter dev\nThen start: zsh\n\n'
+printf '\nUse: toolbox enter %s\nThen start: zsh\n\n' "$DEV_TOOLBOX_NAME"
 INNER
 
 log "Installing verification helper"

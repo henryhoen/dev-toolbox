@@ -58,6 +58,24 @@ toolbox enter dev
 
 The setup script automatically runs verification at the end.
 
+### Testing with a throwaway toolbox
+
+All three scripts honor the `BOX` environment variable. This lets you test against a disposable toolbox without touching the normal `dev` container:
+
+```bash
+BOX=dev-test ./setup-dev-toolbox.sh
+BOX=dev-test ./verify-dev-toolbox.sh
+BOX=dev-test ./update-dev-toolbox.sh
+```
+
+The generated `~/.local/bin/dev-shell` helper is bound to the toolbox name used during setup. Remove the throwaway container afterwards with:
+
+```bash
+toolbox rm -f dev-test
+```
+
+Note that Toolbx shares the host user's home directory, so a throwaway toolbox is fresh for RPM/DNF packages but still sees existing user-level installations such as SDKMAN, nvm, rustup, GHCup, Oh My Zsh, and `~/.local`.
+
 ## Updating
 
 Run from the Fedora Atomic host:
