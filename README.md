@@ -8,8 +8,7 @@ The project installs a broad programming environment, language/version managers,
 
 | File | Purpose |
 |---|---|
-| `setup-dev-toolbox.sh` | Initial bootstrap and idempotent repair/setup |
-| `update-dev-toolbox.sh` | Updates packages, upstream tools, and manager applications |
+| `setup-dev-toolbox.sh` | Idempotent install + update + repair/convergence |
 | `verify-dev-toolbox.sh` | Verifies the host and complete `dev` environment |
 | `cleanup-dev-toolbox.sh` | Destructively removes the managed environment for a true clean reinstall test |
 | `AGENTS.md` | Persistent instructions for Codex/AI agents working on this repo |
@@ -48,7 +47,6 @@ Clone the repository on the Fedora Atomic host and run:
 ```bash
 chmod +x \
   setup-dev-toolbox.sh \
-  update-dev-toolbox.sh \
   verify-dev-toolbox.sh \
   cleanup-dev-toolbox.sh
 ./setup-dev-toolbox.sh
@@ -85,8 +83,6 @@ After cleanup, perform the full acceptance cycle and capture logs:
 ```bash
 ./setup-dev-toolbox.sh 2>&1 | tee setup-full-test.log
 ./verify-dev-toolbox.sh 2>&1 | tee verify-full-test.log
-./update-dev-toolbox.sh 2>&1 | tee update-full-test.log
-./verify-dev-toolbox.sh 2>&1 | tee verify-after-update.log
 ```
 
 If any stage fails, fix the repository scripts rather than applying one-off manual repairs.
@@ -98,7 +94,6 @@ All lifecycle scripts honor the `BOX` environment variable. This lets you test a
 ```bash
 BOX=dev-test ./setup-dev-toolbox.sh
 BOX=dev-test ./verify-dev-toolbox.sh
-BOX=dev-test ./update-dev-toolbox.sh
 BOX=dev-test ./cleanup-dev-toolbox.sh
 ```
 
@@ -110,42 +105,44 @@ toolbox rm -f dev-test
 
 Note that Toolbx shares the host user's home directory, so a throwaway toolbox is fresh for RPM/DNF packages but still sees existing user-level installations such as SDKMAN, nvm, rustup, GHCup, Oh My Zsh, and `~/.local`.
 
-## Updating
+## Setup, update, and repair
 
 Run from the Fedora Atomic host:
 
 ```bash
-./update-dev-toolbox.sh
+./setup-dev-toolbox.sh
 ```
 
-The updater handles:
+The setup script is the single convergence command for this repository. On a fresh machine it installs the environment; on an existing machine it updates and repairs the environment it manages.
 
-- Flatpak application updates
-- JetBrains Toolbox
-- DNF updates inside `dev`
-- Cursor desktop AppImage
-- Oh My Zsh
-- Lua Language Server
-- OpenShift `oc`
-- Claude Code
-- Cursor Agent
-- OpenAI Codex CLI
-- GitHub Copilot CLI
-- SDKMAN itself
-- nvm itself
-- rustup itself
-- GHCup itself
+Each run handles:
+
+- Flatpak application installation/updates
+- JetBrains Toolbox installation/updates
+- Cursor desktop AppImage installation/updates
+- DNF upgrades inside `dev`
+- required Fedora package installation
+- Oh My Zsh installation/update
+- SDKMAN manager + metadata updates
+- nvm manager updates
+- rustup manager updates
+- GHCup manager updates
+- Lua Language Server updates
+- OpenShift `oc` updates
+- Claude Code, Cursor Agent, OpenAI Codex CLI, and GitHub Copilot CLI updates
+- generated wrappers/configuration repair
+- verification at the end
 
 ### What it intentionally does not upgrade
 
-The following SDK/toolchain versions remain under manual user control:
+The following manager-controlled SDK/toolchain versions remain under manual user control once initially installed:
 
 - SDKMAN candidates: Java, Maven, Gradle, Quarkus
 - nvm Node.js versions
-- rustup Rust toolchains/components
+- rustup Rust toolchains
 - GHCup GHC/Cabal/HLS/Stack versions
 
-This keeps project/runtime upgrades deliberate while still keeping the manager applications current.
+This keeps project/runtime upgrades deliberate while still keeping the surrounding manager applications and development environment current.
 
 ## Verification
 
@@ -241,7 +238,7 @@ Managed by **SDKMAN**:
 - Gradle
 - Quarkus CLI
 
-SDKMAN candidate versions are not automatically advanced by the update script.
+SDKMAN candidate versions are not automatically advanced by rerunning the setup/update script.
 
 ### Node.js
 

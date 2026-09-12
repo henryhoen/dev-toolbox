@@ -19,10 +19,11 @@ command -v flatpak >/dev/null || { echo "flatpak is required on the host." >&2; 
 log "Ensuring Flathub is configured"
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
-log "Installing VS Code as a Flatpak"
+log "Installing/updating Flatpak applications"
 flatpak install --user -y flathub "$VSCODE_FLATPAK"
+flatpak update --user -y
 
-log "Installing JetBrains Toolbox on the host"
+log "Installing/updating JetBrains Toolbox on the host"
 install_jetbrains_toolbox() {
   local distribution metadata_url download_url version tmp binary
   case "$(uname -m)" in
@@ -82,7 +83,7 @@ install_jetbrains_toolbox
 flatpak run "$VSCODE_FLATPAK" --install-extension ms-vscode-remote.remote-containers >/dev/null 2>&1 || \
   warn "Could not preinstall VS Code Dev Containers extension; install 'Dev Containers' from VS Code if needed."
 
-log "Installing Cursor desktop as a user-local AppImage"
+log "Installing/updating Cursor desktop as a user-local AppImage"
 install_cursor_desktop() {
   local arch url tmp
   case "$(uname -m)" in
@@ -127,7 +128,7 @@ else
   echo "Toolbox '$BOX' already exists."
 fi
 
-log "Installing development environment inside '$BOX'"
+log "Converging development environment inside '$BOX'"
 toolbox run --container "$BOX" env DEV_TOOLBOX_NAME="$BOX" bash -s <<'INNER'
 set -Eeuo pipefail
 
@@ -187,6 +188,9 @@ if ((${#MISSING[@]})); then
   warn "These packages are not available in the enabled Fedora repositories and were skipped: ${MISSING[*]}"
 fi
 
+# Keep the mutable Toolbx environment tidy after upgrades.
+sudo dnf autoremove -y || true
+
 # Install only the SWI-Prolog core system.  The larger swi-prolog-full/pl
 # metapackages pull in GUI/Java integration that is unnecessary for this CLI
 # development toolbox.
@@ -220,56 +224,78 @@ if command -v guile3.0 >/dev/null 2>&1; then
   ln -sfn "$(command -v guile3.0)" "$HOME/.local/bin/guile"
 fi
 
-log "Installing Oh My Zsh"
+log "Installing/updating Oh My Zsh"
 if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
   RUNZSH=no CHSH=no KEEP_ZSHRC=yes \
     sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+elif [[ -x "$HOME/.oh-my-zsh/tools/upgrade.sh" ]]; then
+  ZSH="$HOME/.oh-my-zsh" "$HOME/.oh-my-zsh/tools/upgrade.sh" || warn "Oh My Zsh update failed"
 fi
 
-log "Installing SDKMAN"
+log "Installing/updating SDKMAN manager"
 if [[ ! -s "$HOME/.sdkman/bin/sdkman-init.sh" ]]; then
   curl -fsSL 'https://get.sdkman.io?rcupdate=false' | bash
 fi
 
-log "Installing nvm"
-if [[ ! -s "$HOME/.nvm/nvm.sh" ]]; then
-  NVM_TAG="$(curl -fsSLI https://github.com/nvm-sh/nvm/releases/latest | awk -F/ 'tolower($1)=="location:" {gsub("\\r",""); print $NF}' | tail -1)"
-  if [[ -z "$NVM_TAG" ]]; then NVM_TAG="v0.40.7"; fi
-  PROFILE=/dev/null bash -c "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_TAG}/install.sh | bash"
+if [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]]; then
+  set +u
+  # shellcheck disable=SC1090
+  source "$HOME/.sdkman/bin/sdkman-init.sh"
+  sdk selfupdate || warn "SDKMAN self-update failed"
+  sdk update || warn "SDKMAN metadata update failed"
+  set -u
 fi
 
-log "Installing rustup"
+log "Installing/updating nvm manager"
+NVM_TAG="$(curl -fsSLI https://github.com/nvm-sh/nvm/releases/latest | awk -F/ 'tolower($1)=="location:" {gsub("\\r",""); print $NF}' | tail -1)"
+if [[ -z "$NVM_TAG" ]]; then NVM_TAG="v0.40.7"; fi
+if [[ ! -s "$HOME/.nvm/nvm.sh" ]]; then
+  PROFILE=/dev/null bash -c "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_TAG}/install.sh | bash"
+else
+  PROFILE=/dev/null bash -c "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_TAG}/install.sh | bash" || warn "nvm update failed"
+fi
+
+log "Installing/updating rustup manager"
 if [[ ! -x "$HOME/.cargo/bin/rustup" ]]; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+else
+  "$HOME/.cargo/bin/rustup" self update || warn "rustup self-update failed"
 fi
 
-log "Installing GHCup and initial Haskell toolchain"
+log "Installing/updating GHCup manager"
 if [[ ! -x "$HOME/.ghcup/bin/ghcup" ]]; then
   curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | \
     BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
+else
+  "$HOME/.ghcup/bin/ghcup" upgrade || warn "GHCup update failed"
 fi
 
 export PATH="$HOME/.ghcup/bin:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 
-# Initial installs only. The updater intentionally does not update these managed SDK/tool versions.
+# Bootstrap manager-controlled toolchains only when they are missing.
+# Once present, their versions are intentionally left under user control.
 if [[ -x "$HOME/.ghcup/bin/ghcup" ]]; then
-  ghcup install ghc --set || true
-  ghcup install cabal --set || true
-  ghcup install hls --set || true
-  ghcup install stack --set || true
+  command -v ghc >/dev/null 2>&1 || ghcup install ghc --set || true
+  command -v cabal >/dev/null 2>&1 || ghcup install cabal --set || true
+  command -v haskell-language-server-wrapper >/dev/null 2>&1 || ghcup install hls --set || true
+  command -v stack >/dev/null 2>&1 || ghcup install stack --set || true
 fi
 
 if [[ -x "$HOME/.cargo/bin/rustup" ]]; then
-  "$HOME/.cargo/bin/rustup" toolchain install stable || true
-  "$HOME/.cargo/bin/rustup" default stable || true
+  if ! "$HOME/.cargo/bin/rustup" show active-toolchain >/dev/null 2>&1; then
+    "$HOME/.cargo/bin/rustup" toolchain install stable || true
+    "$HOME/.cargo/bin/rustup" default stable || true
+  fi
   "$HOME/.cargo/bin/rustup" component add rustfmt clippy rust-analyzer || true
 fi
 
 if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
   # shellcheck disable=SC1090
   source "$HOME/.nvm/nvm.sh"
-  nvm install --lts
-  nvm alias default 'lts/*'
+  if [[ ! -s "$HOME/.nvm/alias/default" ]]; then
+    nvm install --lts
+    nvm alias default 'lts/*'
+  fi
 fi
 
 log "Installing AI coding CLIs"
@@ -294,27 +320,30 @@ EOF
 fi
 
 # Anthropic recommends the native installer; npm installation is deprecated.
-if ! command -v claude >/dev/null 2>&1; then
+if command -v claude >/dev/null 2>&1; then
+  claude update || warn "Claude Code update failed"
+else
   curl -fsSL https://claude.ai/install.sh | bash
 fi
 
 # Cursor's terminal Agent is independent from the Cursor desktop AppImage.
-if ! command -v agent >/dev/null 2>&1; then
+if command -v agent >/dev/null 2>&1; then
+  agent update || warn "Cursor Agent update failed"
+else
   curl https://cursor.com/install -fsS | bash
 fi
 
 if [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]]; then
-  # SDKMAN's shell functions are not safe under Bash nounset (`set -u`).
-  # Keep nounset disabled for both initialization and SDKMAN commands,
-  # then restore the installer's strict mode afterward.
+  # Bootstrap SDKMAN candidates only when missing. Existing candidate versions
+  # remain user-managed and are not advanced by this script.
   set +u
   # shellcheck disable=SC1090
   source "$HOME/.sdkman/bin/sdkman-init.sh"
 
-  sdk install java || true
-  sdk install maven || true
-  sdk install gradle || true
-  sdk install quarkus || true
+  [[ -e "$HOME/.sdkman/candidates/java/current" ]] || sdk install java || true
+  [[ -e "$HOME/.sdkman/candidates/maven/current" ]] || sdk install maven || true
+  [[ -e "$HOME/.sdkman/candidates/gradle/current" ]] || sdk install gradle || true
+  [[ -e "$HOME/.sdkman/candidates/quarkus/current" ]] || sdk install quarkus || true
 
   set -u
 fi
@@ -442,7 +471,7 @@ exec toolbox run --container "$DEV_TOOLBOX_NAME" zsh -l
 EOS
 chmod +x "$HOME/.local/bin/dev-shell"
 
-log "Toolbox installation complete"
+log "Toolbox convergence complete"
 printf '\nUse: toolbox enter %s\nThen start: zsh\n\n' "$DEV_TOOLBOX_NAME"
 INNER
 
@@ -743,7 +772,7 @@ if ! "$HOME/.local/bin/verify-dev-toolbox"; then
   exit 1
 fi
 
-log "Done"
+log "Setup/update complete"
 echo "Toolbox: $BOX"
 echo "VS Code: $VSCODE_FLATPAK"
 echo "JetBrains Toolbox: $HOME/.local/bin/jetbrains-toolbox"

@@ -45,21 +45,9 @@ Responsibilities:
 - Install/write the verifier.
 - Run verification at the end.
 
-The script should be safe to rerun.
+The script should be safe to rerun and acts as install + update + repair/convergence.
 
-### update-dev-toolbox.sh
-
-Run from the host.
-
-Responsibilities:
-
-- Update Flatpak applications.
-- Update DNF packages inside `dev`.
-- Update manually installed upstream tools.
-- Update the manager applications themselves.
-- Do **not** upgrade manager-controlled language/toolchain versions.
-- Run the verifier after updates.
-
+The setup script is also the updater: rerunning it upgrades managed infrastructure and repairs drift while leaving manager-controlled SDK/toolchain versions unchanged after bootstrap.
 
 ### cleanup-dev-toolbox.sh
 
@@ -92,8 +80,6 @@ The strongest regression test for this repository is:
 ./cleanup-dev-toolbox.sh --yes
 ./setup-dev-toolbox.sh 2>&1 | tee setup-full-test.log
 ./verify-dev-toolbox.sh 2>&1 | tee verify-full-test.log
-./update-dev-toolbox.sh 2>&1 | tee update-full-test.log
-./verify-dev-toolbox.sh 2>&1 | tee verify-after-update.log
 ```
 
 This is preferred before handing major changes off because Toolbx shares `$HOME`; merely creating another toolbox is not a complete first-install test for SDKMAN, nvm, rustup, GHCup, Oh My Zsh, LuaLS, or other user-level state.
