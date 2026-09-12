@@ -60,9 +60,10 @@ EOF
 }
 install_cursor_desktop
 
-# Cursor is VS Code-derived and can use Dev Containers to attach to the Toolbx environment.
-"$HOME/.local/opt/cursor/cursor.AppImage" --install-extension ms-vscode-remote.remote-containers >/dev/null 2>&1 || \
-  warn "Could not preinstall Dev Containers in Cursor; install it from Cursor Extensions if needed."
+# Do not launch Cursor during setup.
+# Cursor's AppImage may remain in the foreground when invoked with --install-extension,
+# which would block this installer. Install the Dev Containers extension from Cursor
+# after first launch if desired.
 
 log "Creating toolbox '$BOX' if necessary"
 if ! toolbox run --container "$BOX" true >/dev/null 2>&1; then
