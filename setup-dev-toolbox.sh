@@ -226,8 +226,13 @@ if ! command -v agent >/dev/null 2>&1; then
 fi
 
 if [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]]; then
+  # SDKMAN's init script is not safe to source with Bash nounset (`set -u`)
+  # enabled. Disable nounset only while SDKMAN initializes, then restore it.
+  set +u
   # shellcheck disable=SC1090
   source "$HOME/.sdkman/bin/sdkman-init.sh"
+  set -u
+
   sdk install java || true
   sdk install maven || true
   sdk install gradle || true
